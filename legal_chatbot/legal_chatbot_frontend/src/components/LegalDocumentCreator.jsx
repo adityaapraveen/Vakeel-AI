@@ -4,14 +4,14 @@ import './LegalDocumentCreator.css';
 
 const LegalDocumentCreator = () => {
     const [question, setQuestion] = useState("");
-    const [response, setResponse] = useState(null); // Set to null initially to hide response
+    const [response, setResponse] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
     const handleSubmit = async () => {
         setLoading(true);
         setError(null);
-        setResponse(null); // Reset response on new query
+        setResponse(null); 
 
         try {
             const res = await fetch('http://localhost:8080/generate_contract', {
@@ -22,11 +22,15 @@ const LegalDocumentCreator = () => {
 
             const data = await res.json();
             
-            // Check if the response contains a contract
             if (data.contract) {
-                setResponse([{ text: data.contract }]); // Wrap response in an array for consistency
+                // Split the contract into bullet points if it's formatted appropriately
+                const bulletPoints = data.contract.split('\n').map((line, index) => ({
+                    key: index,
+                    text: line.trim(),
+                }));
+                setResponse(bulletPoints);
             } else {
-                setResponse([]); // Empty array means no document found
+                setResponse([]);
             }
         } catch (error) {
             console.error("Error fetching response:", error);
@@ -46,26 +50,23 @@ const LegalDocumentCreator = () => {
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
             />
-
             <button onClick={handleSubmit} disabled={loading || !question.trim()}>
                 <a href="#" className="btn2">
                     <span className="spn2">{loading ? 'Loading...' : 'Submit'}</span>
                 </a>
             </button>
 
-            {/* Display Error Message if an error occurs */}
             {error && <p style={{ color: 'red' }}>{error}</p>}
 
-            {/* Conditionally render response section only when an answer exists */}
             {response !== null && (
                 <div className="response">
                     <h3>Response:</h3>
                     {response.length > 0 ? (
-                        response.map((item, index) => (
-                            <div key={index}>
-                                <p><strong>Text:</strong> {item.text}</p>
-                            </div>
-                        ))
+                        <ul>
+                            {response.map(item => (
+                                <li key={item.key}>{item.text}</li>
+                            ))}
+                        </ul>
                     ) : (
                         <p>No relevant documents found.</p>
                     )}

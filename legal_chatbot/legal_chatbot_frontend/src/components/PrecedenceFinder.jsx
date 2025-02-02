@@ -5,7 +5,7 @@ import './PrecedenceFinder.css';
 
 const PrecedenceFinder = () => {
     const [query, setQuery] = useState('');
-    const [response, setResponse] = useState(null); // Initially null to hide response
+    const [response, setResponse] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
@@ -13,7 +13,7 @@ const PrecedenceFinder = () => {
         event.preventDefault();
         setLoading(true);
         setError(null);
-        setResponse(null); // Reset response on new query
+        setResponse(null); 
 
         try {
             const res = await axios.post('http://localhost:8080/query/legal', { query });
@@ -53,16 +53,15 @@ const PrecedenceFinder = () => {
 
             {error && <p style={{ color: 'red' }}>{error}</p>}
 
-            {/* Conditionally render response section only when an answer exists */}
             {response !== null && (
                 <div className="response">
                     <h3>Response:</h3>
                     {response.length > 0 ? (
-                        response.map((item, index) => (
-                            <div key={index}>
-                                <p><strong>Text:</strong> {item.text}</p>
-                            </div>
-                        ))
+                        <ul>
+                            {response.map((item, index) => (
+                                <li key={index}>{item.text}</li>
+                            ))}
+                        </ul>
                     ) : (
                         <p>No relevant documents found.</p>
                     )}
