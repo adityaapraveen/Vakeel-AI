@@ -1,5 +1,7 @@
 # Legal Chatbot
 
+![Chatbot Home Page Interface](images/home-page.png)
+
 ## Overview
 
 This project is a legal chatbot that provides legal advice and helps users with various legal queries. The chatbot uses a combination of advanced technologies such as Retrieval-Augmented Generation (RAG), semantic search, vector databases, and large language models (LLMs) to provide precise and relevant answers. It utilizes Milvus as a vector database for indexing legal documents, and Ollama (Llama 3.2 1B parameters) as the underlying large language model to interpret user queries.
@@ -20,6 +22,8 @@ The frontend is developed using React and Vite, while the backend is built using
 - **LLM**: Ollama (Llama 3.2 with 1B parameters)
 
 ## How It Works
+
+[Watch Video](images/video.mov)
 
 1. **Query Processing**: The user enters a query through the frontend interface. The query is processed and sent to the backend Flask server.
 2. **Semantic Search**: The query is run against a vectorized database of legal documents stored in Milvus, using semantic search. This search retrieves relevant legal content, such as IPC sections, case precedents, or other legal information.
