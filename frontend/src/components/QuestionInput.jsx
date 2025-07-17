@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import SplitText from '../assets/SplitText';
-import './Questioninput.css';
+import './QuestionInput.css';
 
 const QuestionInput = () => {
     const [question, setQuestion] = useState('');
