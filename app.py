@@ -11,7 +11,7 @@ app = Flask(__name__)
 
 # Enable CORS for all routes
 CORS(app, resources={r"/*": {"origins": "http://localhost:5173"}})
-
+CORS(app, resources={r"/query/*": {"origins": "http://localhost:5173"}})
 # Milvus connection parameters
 MILVUS_HOST = "localhost"
 MILVUS_PORT = "19530"
@@ -35,8 +35,15 @@ def search_milvus(collection_name, query_text, top_k=3):
     collection = Collection(collection_name)
     collection.load()
 
-    query_embedding = embedding_model.encode([query_text])[0].tolist()
+    # Fields we want to include
+    preferred_fields = ["text", "filename"]
 
+    # Only include available fields
+    available_fields = {field.name for field in collection.schema.fields}
+    output_fields = [field for field in preferred_fields if field in available_fields]
+
+    # Create query embedding
+    query_embedding = embedding_model.encode([query_text])[0].tolist()
     search_params = {"metric_type": "L2", "params": {"nprobe": 10}}
 
     results = collection.search(
@@ -44,28 +51,29 @@ def search_milvus(collection_name, query_text, top_k=3):
         anns_field="vector",
         param=search_params,
         limit=top_k,
-        output_fields=["text", "filename"]
+        output_fields=output_fields
     )
 
-    # Normalize distances to score
+    # Normalize distances
     distances = [hit.distance for hits in results for hit in hits]
     max_dist = max(distances) if distances else 1.0
     min_dist = min(distances) if distances else 0.0
     range_dist = max_dist - min_dist or 1.0
 
+    # Build response
     response = []
     for hits in results:
         for hit in hits:
             text_content = hit.entity.get("text")
-            filename = hit.entity.get("filename")
             if text_content:
                 normalized_score = 1 - ((hit.distance - min_dist) / range_dist)
                 response.append({
                     "text": text_content,
-                    "filename": filename,
+                    "filename": hit.entity.get("filename") if "filename" in output_fields else None,
                     "score": round(normalized_score, 4)
                 })
     return response
+
 
 
 def compare_llm_output_to_retrieved(llm_output, retrieved_docs):
@@ -106,7 +114,44 @@ def query_ipc():
     retrieved_docs = search_milvus("IPC_collection", query_text)
     context = "\n\n".join([doc["text"] for doc in retrieved_docs]) or "No legal context available."
 
-    system_prompt = """..."""  # Use same IPC system prompt as before
+    system_prompt = """
+You are a specialized AI assistant with expertise in Indian Penal Code (IPC) and other relevant Indian laws. Your primary function is to analyze user queries and provide concise, accurate, and relevant IPC sections in bullet points for academic purposes.
+
+Guidelines:
+- Focus only on Indian Law (IPC, CrPC, Evidence Act, and related statutes).
+- Provide direct, precise answers in bullet points without unnecessary explanations.
+- Avoid opinions, interpretations, or legal advice. Stick to statutory provisions.
+- Cite section numbers and key points concisely for clarity.
+- If multiple sections apply, list all relevant ones.
+- Ignore unrelated topics outside Indian law.
+
+Response Format:
+1. Reasoning: Use retrieved legal text to explain the legal relevance.
+2. Answer: A bullet-point list of IPC sections.
+- Mention the section number and a brief description.
+- Include the filename or reference of the source in brackets (e.g., [IPC-375.txt]).
+3. If a query is unclear, ask for clarification rather than making assumptions.
+
+Example:
+
+User Query: "IPC for sexual assault?"
+
+Reasoning:
+
+The term "sexual assault" is addressed across several IPC provisions.
+Section 354 deals with criminal force on a woman intending to outrage her modesty.
+Section 375 defines rape, while Section 376 provides its punishment.
+Answer:
+
+Section 354 IPC [IPC-354.txt] - Assault or criminal force on a woman with intent to outrage modesty.
+Section 375 IPC [IPC-375.txt] - Defines rape and outlines its scope.
+Section 376 IPC [IPC-376.txt] - Punishment for rape.
+
+Strictly adhere to Indian legal statutes and retrieved context. Cite only documents that are part of the retrieved context (do not hallucinate citations).
+    
+
+
+    """  # Use same IPC system prompt as before
     user_prompt = f"Context:\n{context}\n\nQuestion: {query_text}"
 
     try:

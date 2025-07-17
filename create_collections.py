@@ -16,7 +16,7 @@ class SentenceTransformerEmbeddings:
         return self.model.encode([text])[0].tolist()
 
 # Path to your legal PDF
-local_path = "/Users/shreyasr/Documents/Projects/Genesis_Hackathon/IPC.pdf"
+local_path = "./legalform1.pdf"  # Replace with your PDF file path
 
 # Extract text using PyMuPDF
 print("Extracting text from PDF...")
@@ -39,7 +39,7 @@ embeddings = embedding_function.embed_documents([chunk.page_content for chunk in
 # Milvus connection parameters (Docker instance)
 MILVUS_HOST = "localhost"  # Change if running on a different server
 MILVUS_PORT = "19530"  # Default port for Milvus standalone
-COLLECTION_NAME = "IPC_collection"
+COLLECTION_NAME = "Document_Creation_collection"    #IPC_collection
 
 # Store chunks into Milvus (Docker)
 vector_store_saved = Milvus.from_documents(
