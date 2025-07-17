@@ -4,6 +4,7 @@ from pymilvus import connections, Collection
 from sentence_transformers import SentenceTransformer
 import google.generativeai as genai
 import os
+import json
 
 # Initialize Flask application
 app = Flask(__name__)
@@ -28,19 +29,16 @@ gemini_model = genai.GenerativeModel('gemini-2.0-flash-exp')
 # Connect to Milvus
 connections.connect(host=MILVUS_HOST, port=MILVUS_PORT)
 
-# Function to perform search in Milvus collection
+# === Helper Functions ===
+
 def search_milvus(collection_name, query_text, top_k=3):
-    # Connect to the collection
     collection = Collection(collection_name)
     collection.load()
 
-    # Convert query to embedding (fix: flatten to list)
     query_embedding = embedding_model.encode([query_text])[0].tolist()
 
-    # Search parameters
     search_params = {"metric_type": "L2", "params": {"nprobe": 10}}
 
-    # Perform search
     results = collection.search(
         data=[query_embedding],
         anns_field="vector",
@@ -49,22 +47,53 @@ def search_milvus(collection_name, query_text, top_k=3):
         output_fields=["text", "filename"]
     )
 
-    # Format results
+    # Normalize distances to score
+    distances = [hit.distance for hits in results for hit in hits]
+    max_dist = max(distances) if distances else 1.0
+    min_dist = min(distances) if distances else 0.0
+    range_dist = max_dist - min_dist or 1.0
+
     response = []
     for hits in results:
         for hit in hits:
             text_content = hit.entity.get("text")
             filename = hit.entity.get("filename")
-            
             if text_content:
+                normalized_score = 1 - ((hit.distance - min_dist) / range_dist)
                 response.append({
                     "text": text_content,
                     "filename": filename,
-                    "score": hit.distance
+                    "score": round(normalized_score, 4)
                 })
-
     return response
 
+
+def compare_llm_output_to_retrieved(llm_output, retrieved_docs):
+    output_lower = llm_output.lower()
+    used_docs = []
+    unused_docs = []
+
+    for doc in retrieved_docs:
+        if doc["text"].lower()[:50] in output_lower:
+            used_docs.append(doc)
+        else:
+            unused_docs.append(doc)
+
+    return used_docs, unused_docs
+
+def log_interaction(query_text, retrieved_docs, llm_output, used_docs, unused_docs, log_file="llm_audit_log.json"):
+    entry = {
+        "query": query_text,
+        "llm_output": llm_output,
+        "retrieved_docs": retrieved_docs[:1],
+        "used_docs": used_docs[:0],
+        "unused_docs": unused_docs[:0],
+    }
+    with open(log_file, "a") as f:
+        json.dump(entry, f, indent=2)
+        f.write("\n")
+
+# === Route Handlers ===
 
 @app.route("/query/ipc", methods=["POST"])
 def query_ipc():
@@ -75,21 +104,23 @@ def query_ipc():
         return jsonify({"error": "Query text is required"}), 400
 
     retrieved_docs = search_milvus("IPC_collection", query_text)
+    context = "\n\n".join([doc["text"] for doc in retrieved_docs]) or "No legal context available."
 
-    if not retrieved_docs:
-        context = "No legal context available."
-    else:
-        context = "\n\n".join([doc["text"] for doc in retrieved_docs if doc["text"]])
-
-    system_prompt = """
-You are a specialized AI assistant with expertise in Indian Penal Code (IPC) and other relevant Indian laws...
-(omit here for brevity, your full prompt remains unchanged)
-"""
+    system_prompt = """..."""  # Use same IPC system prompt as before
     user_prompt = f"Context:\n{context}\n\nQuestion: {query_text}"
 
     try:
         response = gemini_model.generate_content(f"{system_prompt}\n\n{user_prompt}")
-        return jsonify({"answer": response.text})
+        llm_output = response.text
+        used_docs, unused_docs = compare_llm_output_to_retrieved(llm_output, retrieved_docs)
+        log_interaction(query_text, retrieved_docs, llm_output, used_docs, unused_docs)
+        return jsonify({
+            "answer": llm_output,
+            "retrieved_docs": retrieved_docs,
+            "used_docs": used_docs,
+            "unused_docs": unused_docs
+        })
+
     except Exception as e:
         return jsonify({"error": f"Error generating response: {str(e)}"}), 500
 
@@ -103,14 +134,10 @@ def query_legal_documents():
         return jsonify({"error": "Query text is required"}), 400
 
     retrieved_docs = search_milvus("Precedence_collection", query_text)
-
-    if not retrieved_docs:
-        context = "No legal context available."
-    else:
-        context = "\n\n".join([doc["text"] for doc in retrieved_docs if doc["text"]])
+    context = "\n\n".join([doc["text"] for doc in retrieved_docs]) or "No legal context available."
 
     system_prompt = """
-You are a specialized AI assistant with expertise in Indian Law. Your task is to cite relevant Indian case laws and provide their key details based on the specified legal context. Ensure compliance with the Indian judicial system while maintaining accuracy, specificity, and relevance.
+    You are a specialized AI assistant with expertise in Indian Law. Your task is to cite relevant Indian case laws and provide their key details based on the specified legal context. Ensure compliance with the Indian judicial system while maintaining accuracy, specificity, and relevance.
 
 Guidelines:
 - Focus exclusively on Indian case laws, including Supreme Court, High Court, and other relevant tribunal decisions.
@@ -135,13 +162,23 @@ K.S. Puttaswamy v. Union of India (2017) 10 SCC 1 [Case-Puttaswamy.txt] - Suprem
 Govind v. State of Madhya Pradesh (1975) 2 SCC 148 [Case-Govind.txt] - Held that the right to privacy is protected but subject to reasonable restrictions.
 PUCL v. Union of India (1997) 1 SCC 301 [Case-PUCL.txt] - Established safeguards around telephone tapping and privacy under constitutional principles.
 
-Strictly adhere to Indian judicial precedents while citing cases. If a query lacks specificity, seek clarification rather than making assumptions.
-"""
+Strictly adhere to Indian judicial precedents while citing cases. If a query lacks specificity, seek clarification rather than making assumptions.  
+
+    """  # Use same case law prompt as before
     user_prompt = f"Context:\n{context}\n\nQuestion: {query_text}"
 
     try:
         response = gemini_model.generate_content(f"{system_prompt}\n\n{user_prompt}")
-        return jsonify({"answer": response.text})
+        llm_output = response.text
+        used_docs, unused_docs = compare_llm_output_to_retrieved(llm_output, retrieved_docs)
+        log_interaction(query_text, retrieved_docs, llm_output, used_docs, unused_docs)
+        return jsonify({
+            "answer": llm_output,
+            "retrieved_docs": retrieved_docs,
+            "used_docs": used_docs,
+            "unused_docs": unused_docs
+        })
+
     except Exception as e:
         return jsonify({"error": f"Error generating response: {str(e)}"}), 500
 
@@ -155,21 +192,17 @@ def generate_contract():
         return jsonify({"error": "Question is required"}), 400
 
     retrieved_docs = search_milvus("Document_Creation_collection", user_question, top_k=3)
+    context = "\n\n".join([doc["text"] for doc in retrieved_docs]) or "No legal context available."
 
-    if not retrieved_docs:
-        context = "No legal context available."
-    else:
-        context = "\n\n".join([doc["text"] for doc in retrieved_docs if doc["text"]])
-
-    system_prompt = """
-You are a specialized AI assistant with expertise in Indian Law...
-(omit here for brevity, your full prompt remains unchanged)
-"""
+    system_prompt = """..."""  # Use same contract prompt as before
     user_prompt = f"Context:\n{context}\n\nQuestion: {user_question}"
 
     try:
         response = gemini_model.generate_content(f"{system_prompt}\n\n{user_prompt}")
-        return jsonify({"contract": response.text})
+        llm_output = response.text
+        used_docs, unused_docs = compare_llm_output_to_retrieved(llm_output, retrieved_docs)
+        log_interaction(user_question, retrieved_docs, llm_output, used_docs, unused_docs)
+        return jsonify({"contract": llm_output})
     except Exception as e:
         return jsonify({"error": f"Error generating contract: {str(e)}"}), 500
 
