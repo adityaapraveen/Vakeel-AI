@@ -23,7 +23,7 @@ The frontend is developed using React and Vite, while the backend is built using
 
 ## How It Works
 
-[Watch Video](images/2025-07-29 11-16-00.mkv)
+[Watch Video](Preview.mkv)
 
 1. **Query Processing**: The user enters a query through the frontend interface. The query is processed and sent to the backend Flask server.
 2. **Semantic Search**: The query is run against a vectorized database of legal documents stored in Milvus, using semantic search. This search retrieves relevant legal content, such as IPC sections, case precedents, or other legal information.
